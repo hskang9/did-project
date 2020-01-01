@@ -18,58 +18,63 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 // `construct_runtime!` does a lot of recursion and requires us to increase the limit to 256.
-#![recursion_limit="256"]
+#![recursion_limit = "256"]
 
-use rstd::prelude::*;
-use support::{
-	construct_runtime, parameter_types, traits::{SplitTwoWays, Currency, Randomness}
-};
-use primitives::u32_trait::{_1, _2, _3, _4};
-use node_primitives::{
-	AccountId, AccountIndex, Balance, BlockNumber, Hash, Index,
-	Moment, Signature,
+use authority_discovery_primitives::{
+	AuthorityId as EncodedAuthorityId, Signature as EncodedSignature,
 };
 use babe_primitives::{AuthorityId as BabeId, AuthoritySignature as BabeSignature};
-use grandpa::fg_primitives;
 use client::{
-	block_builder::api::{self as block_builder_api, InherentData, CheckInherentsResult},
-	runtime_api as client_api, impl_runtime_apis
+	block_builder::api::{self as block_builder_api, CheckInherentsResult, InherentData},
+	impl_runtime_apis, runtime_api as client_api,
 };
-use sr_primitives::{
-	Permill, Perbill, ApplyResult, impl_opaque_keys, generic, create_runtime_str, key_types
+use codec::{Decode, Encode};
+use elections::VoteIndex;
+use grandpa::fg_primitives;
+use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
+use im_online::sr25519::AuthorityId as ImOnlineId;
+use node_primitives::{
+	AccountId, AccountIndex, Balance, BlockNumber, Hash, Index, Moment, Signature,
 };
+use primitives::u32_trait::{_1, _2, _3, _4};
+use primitives::OpaqueMetadata;
+use rstd::prelude::*;
 use sr_primitives::curve::PiecewiseLinear;
+use sr_primitives::traits::{
+	self, BlakeTwo256, Block as BlockT, NumberFor, SaturatedConversion, StaticLookup,
+};
 use sr_primitives::transaction_validity::TransactionValidity;
 use sr_primitives::weights::Weight;
-use sr_primitives::traits::{
-	self, BlakeTwo256, Block as BlockT, NumberFor, StaticLookup, SaturatedConversion,
+use sr_primitives::{
+	create_runtime_str, generic, impl_opaque_keys, key_types, ApplyResult, Perbill, Permill,
 };
-use version::RuntimeVersion;
-use elections::VoteIndex;
+use support::{
+	construct_runtime, parameter_types,
+	traits::{Currency, Randomness, SplitTwoWays},
+};
+use system::offchain::TransactionSubmitter;
 #[cfg(any(feature = "std", test))]
 use version::NativeVersion;
-use primitives::OpaqueMetadata;
-use grandpa::{AuthorityId as GrandpaId, AuthorityWeight as GrandpaWeight};
-use im_online::sr25519::{AuthorityId as ImOnlineId};
-use authority_discovery_primitives::{AuthorityId as EncodedAuthorityId, Signature as EncodedSignature};
-use codec::{Encode, Decode};
-use system::offchain::TransactionSubmitter;
+use version::RuntimeVersion;
 
-#[cfg(any(feature = "std", test))]
-pub use sr_primitives::BuildStorage;
-pub use timestamp::Call as TimestampCall;
 pub use balances::Call as BalancesCall;
 pub use contracts::Gas;
-pub use support::StorageValue;
+#[cfg(any(feature = "std", test))]
+pub use sr_primitives::BuildStorage;
 pub use staking::StakerStatus;
+pub use support::StorageValue;
+pub use timestamp::Call as TimestampCall;
 
+mod access;
+mod did;
 /// Implementations of some helper traits passed into runtime modules as associated types.
 pub mod impls;
-use impls::{CurrencyToVoteHandler, FeeMultiplierUpdateHandler, Author, WeightToFee};
+mod storage;
+use impls::{Author, CurrencyToVoteHandler, FeeMultiplierUpdateHandler, WeightToFee};
 
 /// Constant values used within the runtime.
 pub mod constants;
-use constants::{time::*, currency::*};
+use constants::{currency::*, time::*};
 
 // Make the WASM binary available.
 #[cfg(feature = "std")]
@@ -103,8 +108,10 @@ type NegativeImbalance = <Balances as Currency<AccountId>>::NegativeImbalance;
 pub type DealWithFees = SplitTwoWays<
 	Balance,
 	NegativeImbalance,
-	_4, Treasury,   // 4 parts (80%) goes to the treasury.
-	_1, Author,     // 1 part (20%) goes to the block author.
+	_4,
+	Treasury, // 4 parts (80%) goes to the treasury.
+	_1,
+	Author, // 1 part (20%) goes to the block author.
 >;
 
 parameter_types! {
@@ -299,15 +306,19 @@ impl democracy::Trait for Runtime {
 	/// A straight majority of the council can decide what their next motion is.
 	type ExternalOrigin = collective::EnsureProportionAtLeast<_1, _2, AccountId, CouncilCollective>;
 	/// A super-majority can have the next scheduled referendum be a straight majority-carries vote.
-	type ExternalMajorityOrigin = collective::EnsureProportionAtLeast<_3, _4, AccountId, CouncilCollective>;
+	type ExternalMajorityOrigin =
+		collective::EnsureProportionAtLeast<_3, _4, AccountId, CouncilCollective>;
 	/// A unanimous council can have the next scheduled referendum be a straight default-carries
 	/// (NTB) vote.
-	type ExternalDefaultOrigin = collective::EnsureProportionAtLeast<_1, _1, AccountId, CouncilCollective>;
+	type ExternalDefaultOrigin =
+		collective::EnsureProportionAtLeast<_1, _1, AccountId, CouncilCollective>;
 	/// Two thirds of the technical committee can have an ExternalMajority/ExternalDefault vote
 	/// be tabled immediately and with a shorter voting/enactment period.
-	type FastTrackOrigin = collective::EnsureProportionAtLeast<_2, _3, AccountId, TechnicalCollective>;
+	type FastTrackOrigin =
+		collective::EnsureProportionAtLeast<_2, _3, AccountId, TechnicalCollective>;
 	// To cancel a proposal which has been passed, 2/3 of the council must agree to it.
-	type CancellationOrigin = collective::EnsureProportionAtLeast<_2, _3, AccountId, CouncilCollective>;
+	type CancellationOrigin =
+		collective::EnsureProportionAtLeast<_2, _3, AccountId, CouncilCollective>;
 	// Any single technical committee member may veto a coming council proposal, however they can
 	// only do it once and it lasts only for the cooloff period.
 	type VetoOrigin = collective::EnsureMember<AccountId, TechnicalCollective>;
@@ -435,6 +446,18 @@ impl sudo::Trait for Runtime {
 	type Proposal = Call;
 }
 
+impl storage::Trait for Runtime {
+	type Event = Event;
+}
+
+impl access::Trait for Runtime {
+	type Event = Event;
+}
+
+impl did::Trait for Runtime {
+	type Event = Event;
+}
+
 type SubmitTransaction = TransactionSubmitter<ImOnlineId, Runtime, UncheckedExtrinsic>;
 
 impl im_online::Trait for Runtime {
@@ -452,7 +475,7 @@ impl offences::Trait for Runtime {
 }
 
 impl authority_discovery::Trait for Runtime {
-    type AuthorityId = BabeId;
+	type AuthorityId = BabeId;
 }
 
 impl grandpa::Trait for Runtime {
@@ -477,7 +500,10 @@ impl system::offchain::CreateTransaction<Runtime, UncheckedExtrinsic> for Runtim
 		call: Call,
 		account: AccountId,
 		index: Index,
-	) -> Option<(Call, <UncheckedExtrinsic as traits::Extrinsic>::SignaturePayload)> {
+	) -> Option<(
+		Call,
+		<UncheckedExtrinsic as traits::Extrinsic>::SignaturePayload,
+	)> {
 		let period = 1 << 8;
 		let current_block = System::block_number().saturated_into::<u64>();
 		let tip = 0;
@@ -524,6 +550,9 @@ construct_runtime!(
 		Treasury: treasury::{Module, Call, Storage, Event<T>},
 		Contracts: contracts,
 		Sudo: sudo,
+		Storage: storage::{Module, Call, Storage, Event<T>},
+		Access: access::{Module, Call, Storage, Event<T>},
+		DID: did::{Module, Call, Storage, Event<T>},
 		ImOnline: im_online::{Module, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
 		AuthorityDiscovery: authority_discovery::{Module, Call, Config<T>},
 		Offences: offences::{Module, Call, Storage, Event},
@@ -558,7 +587,8 @@ pub type SignedPayload = generic::SignedPayload<Call, SignedExtra>;
 /// Extrinsic type that has already been checked.
 pub type CheckedExtrinsic = generic::CheckedExtrinsic<AccountId, Call, SignedExtra>;
 /// Executive: handles dispatch to the various modules.
-pub type Executive = executive::Executive<Runtime, Block, system::ChainContext<Runtime>, Runtime, AllModules>;
+pub type Executive =
+	executive::Executive<Runtime, Block, system::ChainContext<Runtime>, Runtime, AllModules>;
 
 impl_runtime_apis! {
 	impl client_api::Core<Block> for Runtime {
@@ -649,8 +679,8 @@ impl_runtime_apis! {
 
 		fn sign(payload: &Vec<u8>) -> Option<(EncodedSignature, EncodedAuthorityId)> {
 			  AuthorityDiscovery::sign(payload).map(|(sig, id)| {
-            (EncodedSignature(sig.encode()), EncodedAuthorityId(id.encode()))
-        })
+			(EncodedSignature(sig.encode()), EncodedAuthorityId(id.encode()))
+		})
 		}
 
 		fn verify(payload: &Vec<u8>, signature: &EncodedSignature, authority_id: &EncodedAuthorityId) -> bool {
@@ -715,17 +745,19 @@ mod tests {
 	use sr_primitives::app_crypto::RuntimeAppPublic;
 	use system::offchain::SubmitSignedTransaction;
 
-	fn is_submit_signed_transaction<T, Signer>(_arg: T) where
+	fn is_submit_signed_transaction<T, Signer>(_arg: T)
+	where
 		T: SubmitSignedTransaction<
 			Runtime,
 			Call,
-			Extrinsic=UncheckedExtrinsic,
-			CreateTransaction=Runtime,
-			Signer=Signer,
+			Extrinsic = UncheckedExtrinsic,
+			CreateTransaction = Runtime,
+			Signer = Signer,
 		>,
 		Signer: RuntimeAppPublic + From<AccountId>,
 		Signer::Signature: Into<Signature>,
-	{}
+	{
+	}
 
 	#[test]
 	fn validate_bounds() {
