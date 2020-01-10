@@ -37,15 +37,18 @@ impl Default for Status {
 #[derive(Encode, Decode, Default, Clone, Eq, PartialEq)]
 pub struct DID {
 	pub public_key: Vec<u8>,
-    /// hash from issuer identity public key
-    pub issuer: H256
+    /// hash from issuer tx public key
+    pub issuer: H256,
+    /// hash from owner tx public key
+    pub owner: H256 
 }
 
 impl DID {
-    pub fn new (public_key: Vec<u8>, issuer: H256) -> Self {
+    pub fn new (public_key: Vec<u8>, issuer: H256, owner: H256) -> Self {
         DID {
             public_key,
-            issuer
+            issuer,
+            owner
         }
     }
 }
@@ -56,6 +59,12 @@ impl<T: Trait> Module<T> {
         let access_who = Self::id(id.clone());
         let issuer_hash = H256::from_slice(&issuer.encode());
         access_who.issuer == issuer_hash    
+    }
+
+    pub fn is_id_owner(id: Vec<u8>, owner: T::AccountId) -> bool {
+        let owner_who = Self::id(id.clone());
+        let owner_hash = H256::from_slice(&owner.encode());
+        owner_who.owner == owner_hash    
     }
 }
 
@@ -84,12 +93,13 @@ decl_module! {
 		fn deposit_event() = default;
 
         #[weight = SimpleDispatchInfo::FixedNormal(0)]
-        pub fn register(origin, id: Vec<u8>, public_key: Vec<u8>) -> Result {
+        pub fn register(origin, id: Vec<u8>, public_key: Vec<u8>, owner: T::AccountId) -> Result {
             let issuer = ensure_signed(origin)?;
             let issuer_hash = H256::from_slice(&issuer.encode());
+            let owner_hash = H256::from_slice(&owner.encode());
             ensure!(!<IDs>::exists(id.clone()), "The id is already issued");
             
-            let did_claimer = DID::new(public_key.clone(), issuer_hash.clone());
+            let did_claimer = DID::new(public_key.clone(), issuer_hash.clone(), owner_hash.clone());
             <IDs>::insert(id.clone(), did_claimer);
             Self::deposit_event(RawEvent::IdIssued(id, issuer));
             Ok(())
@@ -116,7 +126,7 @@ decl_module! {
             ensure!(did_claimer.issuer == issuer_hash, "You are not the issuer of this identity");
             
             // Update DID 
-            let did_claimer = DID::new(public_key.clone(), issuer_hash.clone());
+            let did_claimer = DID::new(public_key.clone(), issuer_hash.clone(), did_claimer.clone().owner);
             <IDs>::mutate(id.clone(), |a| *a = did_claimer);
             Self::deposit_event(RawEvent::IdChanged(id, public_key, issuer));
             Ok(())

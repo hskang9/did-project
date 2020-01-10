@@ -70,6 +70,7 @@ mod did;
 /// Implementations of some helper traits passed into runtime modules as associated types.
 pub mod impls;
 mod storage;
+mod phys_contract;
 use impls::{Author, CurrencyToVoteHandler, FeeMultiplierUpdateHandler, WeightToFee};
 
 /// Constant values used within the runtime.
@@ -458,6 +459,10 @@ impl did::Trait for Runtime {
 	type Event = Event;
 }
 
+impl phys_contract::Trait for Runtime {
+	type Event = Event;
+}
+
 type SubmitTransaction = TransactionSubmitter<ImOnlineId, Runtime, UncheckedExtrinsic>;
 
 impl im_online::Trait for Runtime {
@@ -553,6 +558,7 @@ construct_runtime!(
 		Storage: storage::{Module, Call, Storage, Event<T>},
 		Access: access::{Module, Call, Storage, Event<T>},
 		DID: did::{Module, Call, Storage, Event<T>},
+		PhysContract: phys_contract::{Module, Call, Storage, Event<T>},
 		ImOnline: im_online::{Module, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
 		AuthorityDiscovery: authority_discovery::{Module, Call, Config<T>},
 		Offences: offences::{Module, Call, Storage, Event},
