@@ -8,13 +8,14 @@
 /// For more guidance on Substrate modules, see the example module
 /// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
 
-use support::{decl_module, decl_storage, decl_event, dispatch::Result, ensure};
+use support::{decl_module, decl_storage, decl_event, dispatch::Result, ensure, traits::Randomness};
 use primitives::H256;
 use sr_primitives::weights::SimpleDispatchInfo;
 use codec::{Encode, Decode};
 use system::{ensure_signed};
 use rstd::prelude::*;
 use crate::did;
+use crate::RandomnessCollectiveFlip;
 
 /*
 #[derive(Encode, Decode, Clone, Eq, PartialEq)]
@@ -86,63 +87,35 @@ decl_module! {
 		fn deposit_event() = default;
 
         #[weight = SimpleDispatchInfo::FixedNormal(0)]
-        pub fn propose(origin, content_id: Vec<u8>, proposer_id: Vec<u8>, proposer_id_signature: Vec<u8>) -> Result {
+        pub fn propose(origin, content_id: Vec<u8>, proposer_id: Vec<u8>, approver_id: Vec<u8>, proposer_id_signature: Vec<u8>) -> Result {
             let proposer = ensure_signed(origin)?;
             ensure!(<did::IDs>::exists(proposer_id.clone()), "The proposer has not made did yet");
             ensure!(did::Module::<T>::is_id_owner(proposer_id.clone(), proposer.clone()), "Proposer does not own this DID");
-            
-            let phys_contract = PhysContract::new(content_id, proposer_id.clone(), proposer_id_signature);
-            <PhysContracts>::insert(proposer_id.clone(), phys_contract);
-            Self::deposit_event(RawEvent::PhysContractProposed(proposer_id, proposer));
+            let contract_id = H256::from_slice(&[&proposer_id.clone().encode() as &[u8], &RandomnessCollectiveFlip::random_seed().encode() as &[u8]].concat());
+
+            let phys_contract = PhysContract::new(content_id, proposer_id.clone(), approver_id.clone(), proposer_id_signature);
+            <PhysContracts>::insert(contract_id.as_bytes().to_vec(), phys_contract);
+            Self::deposit_event(RawEvent::PhysContractProposed(contract_id.as_bytes().to_vec(), proposer));
             Ok(())
         }
 
-        pub fn approve(origin, proposer_id: Vec<u8>, approver_id: Vec<u8>, approver_id_signature: Vec<u8>) -> Result {
+        pub fn approve(origin, contract_id: Vec<u8>) -> Result {
             let approver = ensure_signed(origin)?;
-            ensure!(<did::IDs>::exists(approver_id.clone()), "The approver has not made did yet");
+            let phys_contract = Self::contract(contract_id);
+            let approver_id = phys_contract.approver_id;
+            ensure!(<did::IDs>::exists(approver_id.clone()), "The approver's did does not exist");
             ensure!(did::Module::<T>::is_id_owner(approver_id.clone(), approver.clone()), "Approver does not own this DID");
             
-            let mut new_phys_contract = Self::contract(proposer_id.clone());
-            new_phys_contract.approver_id = approver_id.clone();
+
+            let mut new_phys_contract = phys_contract.clone();
             new_phys_contract.approver_signature = approver_id_signature;
-            <PhysContracts>::mutate(proposer_id.clone(), |c| *c = new_phys_contract.clone());
-            <PhysContracts>::insert(approver_id.clone(), new_phys_contract);
+            <PhysContracts>::mutate(contract_id.clone(), |c| *c = new_phys_contract.clone());
             
-            Self::deposit_event(RawEvent::PhysContractApproved(approver_id, approver));
+            Self::deposit_event(RawEvent::PhysContractApproved(contract_id, approver_id));
             Ok(())
         }
 
-        /*
-        #[weight = SimpleDispatchInfo::FixedNormal(0)]
-        pub fn remove(origin, proposer_id: Vec<u8>, approver_id: Vec<u8>) -> Result {
-            let proposer = ensure_signed(origin)?;
-            ensure!(<IDs>::exists(id.clone()), "The proposer id does not exist");
-            let proposer_id = Self::id(id.clone());
-            let proposer_hash = H256::from_slice(&issuer.encode());
-            ensure!(proposer_id.owner == proposer_hash, "You are not the owner of this identity");
-            <PhysContracts>::remove(proposer_id.clone());
-            if <PhysContract>::exists()
-            Self::deposit_event(RawEvent::PhysContractRemoved(proposer_id, proposer));
-            Ok(())
-        }
-        */
-
-        /*
-        #[weight = SimpleDispatchInfo::FixedNormal(0)]
-        pub fn update(origin, id: Vec<u8>, content_hash: Vec<u8>) -> Result {
-
-            let proposer = ensure_signed(origin)?;
-            let proposer_hash = H256::from_slice(&proposer.encode());
-            ensure!(did::<IDs>::exists(id.clone()), "The proposer has not made did yet");
-            ensure!(did::is_id_owner(proposer_id, proposer), "Proposer does not own this DID");
-            
-            // Update DID 
-            let contract_claimer = DID::new(public_key.clone(), issuer_hash.clone());
-            <IDs>::mutate(id.clone(), |a| *a = did_claimer);
-            Self::deposit_event(RawEvent::IdChanged(id, public_key, issuer));
-            Ok(())
-        }
-        */
+        
 	}
 }
 
