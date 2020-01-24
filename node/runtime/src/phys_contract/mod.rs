@@ -46,11 +46,11 @@ pub struct PhysContract {
 }
 
 impl PhysContract {
-    pub fn new (content_id: Vec<u8>, proposer_id: Vec<u8>, proposer_signature: Vec<u8>) -> Self {
+    pub fn new (content_id: Vec<u8>, proposer_id: Vec<u8>, approver_id: Vec<u8>, proposer_signature: Vec<u8>) -> Self {
         PhysContract {
             content_id,
             proposer_id,
-            approver_id: vec!{0},
+            approver_id,
             proposer_signature,
             approver_signature: vec!{0}
         }
@@ -95,14 +95,14 @@ decl_module! {
 
             let phys_contract = PhysContract::new(content_id, proposer_id.clone(), approver_id.clone(), proposer_id_signature);
             <PhysContracts>::insert(contract_id.as_bytes().to_vec(), phys_contract);
-            Self::deposit_event(RawEvent::PhysContractProposed(contract_id.as_bytes().to_vec(), proposer));
+            Self::deposit_event(RawEvent::PhysContractProposed(contract_id.as_bytes().to_vec(), proposer_id.clone(), proposer.clone()));
             Ok(())
         }
 
-        pub fn approve(origin, contract_id: Vec<u8>) -> Result {
+        pub fn approve(origin, contract_id: Vec<u8>, approver_id_signature: Vec<u8>) -> Result {
             let approver = ensure_signed(origin)?;
-            let phys_contract = Self::contract(contract_id);
-            let approver_id = phys_contract.approver_id;
+            let phys_contract = Self::contract(contract_id.clone());
+            let approver_id = phys_contract.approver_id.clone();
             ensure!(<did::IDs>::exists(approver_id.clone()), "The approver's did does not exist");
             ensure!(did::Module::<T>::is_id_owner(approver_id.clone(), approver.clone()), "Approver does not own this DID");
             
@@ -111,7 +111,7 @@ decl_module! {
             new_phys_contract.approver_signature = approver_id_signature;
             <PhysContracts>::mutate(contract_id.clone(), |c| *c = new_phys_contract.clone());
             
-            Self::deposit_event(RawEvent::PhysContractApproved(contract_id, approver_id));
+            Self::deposit_event(RawEvent::PhysContractApproved(contract_id.clone(), approver_id.clone(), approver.clone()));
             Ok(())
         }
 
@@ -119,11 +119,13 @@ decl_module! {
 	}
 }
 
+pub type ContractId = Vec<u8>;
+pub type ProposerId = Vec<u8>;
+pub type ApproverId = Vec<u8>;
+
 decl_event!(
-	pub enum Event<T> where AccountId = <T as system::Trait>::AccountId {
-        PhysContractProposed(Vec<u8>, AccountId),
-        PhysContractApproved(Vec<u8>, AccountId),
-        PhysContractRemoved(Vec<u8>, AccountId),
-        PhysContractChanged(Vec<u8>, Vec<u8>, AccountId),
+	pub enum Event<T> where SovereignAccount  = <T as system::Trait>::AccountId {
+        PhysContractProposed(ContractId, ProposerId, SovereignAccount),
+        PhysContractApproved(ContractId, ApproverId, SovereignAccount),
 	}
 );

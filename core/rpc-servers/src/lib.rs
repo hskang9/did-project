@@ -60,7 +60,9 @@ pub fn rpc_handler<M: PubSubMetadata>(
 mod inner {
 	use super::*;
 
+	/// Http server
 	pub type HttpServer = http::Server;
+	/// Websocket server
 	pub type WsServer = ws::Server;
 
 	/// Start HTTP server listening on given address.
