@@ -91,7 +91,7 @@ decl_module! {
             let proposer = ensure_signed(origin)?;
             ensure!(<did::IDs>::exists(proposer_id.clone()), "The proposer has not made did yet");
             ensure!(did::Module::<T>::is_id_owner(proposer_id.clone(), proposer.clone()), "Proposer does not own this DID");
-            let contract_id = H256::from_slice(&[&proposer_id.clone().encode() as &[u8], &RandomnessCollectiveFlip::random_seed().encode() as &[u8]].concat());
+            let contract_id = H256::from_slice(&RandomnessCollectiveFlip::random_seed().encode() as &[u8]);
 
             let phys_contract = PhysContract::new(content_id, proposer_id.clone(), approver_id.clone(), proposer_id_signature);
             <PhysContracts>::insert(contract_id.as_bytes().to_vec(), phys_contract);
