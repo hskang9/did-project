@@ -71,7 +71,7 @@ mod did;
 pub mod impls;
 mod storage;
 mod phys_contract;
-mod p2p_loan;
+mod loan;
 use impls::{Author, CurrencyToVoteHandler, FeeMultiplierUpdateHandler, WeightToFee};
 
 /// Constant values used within the runtime.
@@ -464,7 +464,7 @@ impl phys_contract::Trait for Runtime {
 	type Event = Event;
 }
 
-impl p2p_loan::Trait for Runtime {
+impl loan::Trait for Runtime {
 	type Event = Event;
 }
 
@@ -564,7 +564,7 @@ construct_runtime!(
 		Access: access::{Module, Call, Storage, Event<T>},
 		DID: did::{Module, Call, Storage, Event<T>},
 		PhysContract: phys_contract::{Module, Call, Storage, Event<T>},
-		P2PLoan: p2p_loan::{Module, Call, Storage, Event<T>},
+		Loan: loan::{Module, Call, Storage, Event<T>},
 		ImOnline: im_online::{Module, Call, Storage, Event<T>, ValidateUnsigned, Config<T>},
 		AuthorityDiscovery: authority_discovery::{Module, Call, Config<T>},
 		Offences: offences::{Module, Call, Storage, Event},
